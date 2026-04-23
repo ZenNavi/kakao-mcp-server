@@ -6,7 +6,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 
 const execFileAsync = promisify(execFile);
-const PORT = 7777;
+const PORT = parseInt(process.env.PORT || "7777", 10);
 const KAKAOCLI = process.env.KAKAOCLI_PATH || "kakaocli";
 const URL_RE = /https?:\/\/[^\s]+/g;
 
@@ -16,6 +16,8 @@ async function runKakaocli(args) {
   try {
     ({ stdout } = await execFileAsync(KAKAOCLI, args, {
       maxBuffer: 50 * 1024 * 1024,
+      timeout: 30_000,
+      killSignal: "SIGTERM",
     }));
   } catch (err) {
     const detail = err.stderr?.trim() || err.message;
@@ -166,6 +168,9 @@ function buildMcpServer() {
         "--since", kakaocliArg,
         "--json",
       ]);
+      if (!Array.isArray(messages)) {
+        throw new Error(`kakaocli messages: expected array, got ${typeof messages}`);
+      }
       if (filterDate) messages = filterByDate(messages, filterDate);
       messages = messages.slice(0, limit);
 
@@ -200,6 +205,9 @@ function buildMcpServer() {
         "--since", kakaocliArg,
         "--json",
       ]);
+      if (!Array.isArray(messages)) {
+        throw new Error(`kakaocli messages: expected array, got ${typeof messages}`);
+      }
       if (filterDate) messages = filterByDate(messages, filterDate);
 
       const tasks = extractTasksFromMessages(messages);
@@ -280,3 +288,14 @@ httpServer.on("error", (err) => {
   console.error("HTTP server error:", err);
   process.exit(1);
 });
+
+function shutdown(signal) {
+  console.log(`Received ${signal}, shutting down...`);
+  httpServer.close(() => {
+    console.log("HTTP server closed");
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 5_000).unref();
+}
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
