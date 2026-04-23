@@ -223,37 +223,44 @@ function buildMcpServer() {
 
 // ─── HTTP Server ──────────────────────────────────────────────────────────────
 
-async function readBody(req) {
+async function readBody(req, maxBytes = 1 * 1024 * 1024) {
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  let total = 0;
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > maxBytes) {
+      req.destroy();
+      throw new Error("Request body too large");
+    }
+    chunks.push(chunk);
+  }
   return Buffer.concat(chunks).toString();
 }
 
 const httpServer = createServer(async (req, res) => {
-  if (req.url !== "/mcp" || req.method !== "POST") {
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("Kakao MCP Server — POST /mcp");
-    return;
-  }
-
-  const rawBody = await readBody(req);
-  let parsedBody;
   try {
-    parsedBody = JSON.parse(rawBody);
-  } catch {
-    res.writeHead(400, { "Content-Type": "text/plain" });
-    res.end("Invalid JSON");
-    return;
-  }
+    if (req.url !== "/mcp" || req.method !== "POST") {
+      res.writeHead(405, { "Content-Type": "text/plain" });
+      res.end("Kakao MCP Server — POST /mcp");
+      return;
+    }
 
-  const server = buildMcpServer();
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined, // stateless
-  });
+    const rawBody = await readBody(req);
+    let parsedBody;
+    try {
+      parsedBody = JSON.parse(rawBody);
+    } catch {
+      res.writeHead(400, { "Content-Type": "text/plain" });
+      res.end("Invalid JSON");
+      return;
+    }
 
-  res.on("close", () => server.close());
+    const server = buildMcpServer();
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    res.on("close", () => {
+      server.close().catch((err) => console.error("server.close() error:", err));
+    });
 
-  try {
     await server.connect(transport);
     await transport.handleRequest(req, res, parsedBody);
   } catch (err) {
@@ -267,4 +274,9 @@ const httpServer = createServer(async (req, res) => {
 
 httpServer.listen(PORT, () => {
   console.log(`Kakao MCP server listening on http://localhost:${PORT}/mcp`);
+});
+
+httpServer.on("error", (err) => {
+  console.error("HTTP server error:", err);
+  process.exit(1);
 });
