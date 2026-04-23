@@ -226,6 +226,22 @@ function buildMcpServer() {
     }
   );
 
+  server.tool(
+    "search_messages",
+    "전체 채팅방에서 키워드로 메시지를 검색합니다.",
+    {
+      query: z.string().describe("검색 키워드"),
+      limit: z.number().int().positive().max(100).optional().default(20),
+    },
+    async ({ query, limit }) => {
+      const results = await runKakaocli(["search", query, "--limit", String(limit), "--json"]);
+      if (!Array.isArray(results)) {
+        throw new Error(`kakaocli search: expected array, got ${typeof results}`);
+      }
+      return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };
+    }
+  );
+
   return server;
 }
 
