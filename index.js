@@ -162,10 +162,13 @@ function buildMcpServer() {
     },
     async ({ chat, since, limit }) => {
       const { kakaocliArg, filterDate } = parseSince(since);
+      // When filtering by exact date, fetch more so the filter has enough to work with
+      const fetchLimit = filterDate ? Math.min(limit * 10, 2000) : limit;
       let messages = await runKakaocli([
         "messages",
         "--chat", chat,
         "--since", kakaocliArg,
+        "--limit", String(fetchLimit),
         "--json",
       ]);
       if (!Array.isArray(messages)) {
@@ -203,6 +206,7 @@ function buildMcpServer() {
         "messages",
         "--chat", chat,
         "--since", kakaocliArg,
+        "--limit", "2000",
         "--json",
       ]);
       if (!Array.isArray(messages)) {
