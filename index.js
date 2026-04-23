@@ -12,15 +12,25 @@ const URL_RE = /https?:\/\/[^\s]+/g;
 
 // Run kakaocli and parse JSON output
 async function runKakaocli(args) {
-  const { stdout } = await execFileAsync(KAKAOCLI, args, {
-    maxBuffer: 50 * 1024 * 1024,
-  });
-  return JSON.parse(stdout);
+  let stdout;
+  try {
+    ({ stdout } = await execFileAsync(KAKAOCLI, args, {
+      maxBuffer: 50 * 1024 * 1024,
+    }));
+  } catch (err) {
+    const detail = err.stderr?.trim() || err.message;
+    throw new Error(`kakaocli ${args[0]} failed: ${detail}`);
+  }
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    throw new Error(`kakaocli ${args[0]}: invalid JSON — ${stdout.slice(0, 200)}`);
+  }
 }
 
 // Extract attachment URLs from message text
 function extractAttachments(text = "") {
-  const urls = text.match(URL_RE) || [];
+  const urls = (text.match(URL_RE) || []).map((url) => url.replace(/[.,!?)\]]+$/, ""));
   return urls.map((url) => ({ url, filename: url.split("/").pop() || "file" }));
 }
 
@@ -34,18 +44,21 @@ function parseSince(since = "7d") {
 
   if (since === "today") {
     const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const hoursAgo = Math.ceil((now - midnight) / 3_600_000) + 1;
+    const hoursAgo = Math.ceil((now - midnight) / 3_600_000) + 1; // +1h buffer for boundary inclusivity
     return { kakaocliArg: `${hoursAgo}h`, filterDate: dateStr(now) };
   }
 
   if (since === "yesterday") {
     const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-    return { kakaocliArg: "50h", filterDate: dateStr(yesterday) };
+    return { kakaocliArg: "50h", filterDate: dateStr(yesterday) }; // 2 days + buffer; filterDate constrains to yesterday only
   }
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(since)) {
     const target = new Date(since + "T00:00:00");
     const daysAgo = Math.ceil((now - target) / 86_400_000) + 1;
+    if (daysAgo <= 0) {
+      return { kakaocliArg: "1d", filterDate: since };
+    }
     return { kakaocliArg: `${daysAgo}d`, filterDate: since };
   }
 
