@@ -221,6 +221,50 @@ function buildMcpServer() {
   return server;
 }
 
-// ─── HTTP server (Task 6 placeholder — export buildMcpServer for now) ─────────
+// ─── HTTP Server ──────────────────────────────────────────────────────────────
 
-export { buildMcpServer };
+async function readBody(req) {
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  return Buffer.concat(chunks).toString();
+}
+
+const httpServer = createServer(async (req, res) => {
+  if (req.url !== "/mcp" || req.method !== "POST") {
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    res.end("Kakao MCP Server — POST /mcp");
+    return;
+  }
+
+  const rawBody = await readBody(req);
+  let parsedBody;
+  try {
+    parsedBody = JSON.parse(rawBody);
+  } catch {
+    res.writeHead(400, { "Content-Type": "text/plain" });
+    res.end("Invalid JSON");
+    return;
+  }
+
+  const server = buildMcpServer();
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined, // stateless
+  });
+
+  res.on("close", () => server.close());
+
+  try {
+    await server.connect(transport);
+    await transport.handleRequest(req, res, parsedBody);
+  } catch (err) {
+    console.error("MCP request error:", err);
+    if (!res.headersSent) {
+      res.writeHead(500, { "Content-Type": "text/plain" });
+      res.end("Internal server error");
+    }
+  }
+});
+
+httpServer.listen(PORT, () => {
+  console.log(`Kakao MCP server listening on http://localhost:${PORT}/mcp`);
+});
